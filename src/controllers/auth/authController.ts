@@ -2,14 +2,14 @@
 import { Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { ZodError } from 'zod';
-import { hashPassword, comparePassword } from '../../utils/hash'; // Removido '.js'
-import { generateToken } from '../../utils/jwt'; // Removido '.js'
+import { hashPassword, comparePassword } from '../../utils/hash';
+import { generateToken } from '../../utils/jwt';
 import {
     RegisterInput,
     LoginInput,
     UpdateProfileInput,
     ChangePasswordInput
-} from '../../validations/authValidations'; // Removido '.js'
+} from '../../validations/authValidations';
 
 const prisma = new PrismaClient();
 
@@ -79,7 +79,7 @@ export const register = async (req: Request<any, any, RegisterInput>, res: Respo
         });
 
         // 5. Gerar token para o novo usuário
-        const token = generateToken({ userId: newUser.id, tenantId: newUser.tenantId });
+        const token = generateToken({ id: newUser.id, tenantId: newUser.tenantId });
 
         res.status(201).json({
             message: 'Usuário registrado com sucesso!',
@@ -110,7 +110,7 @@ export const login = async (req: Request<any, any, LoginInput>, res: Response, n
             return res.status(401).json({ message: 'Credenciais inválidas.' });
         }
 
-        const token = generateToken({ userId: user.id, tenantId: user.tenantId });
+        const token = generateToken({ id: user.id, tenantId: user.tenantId });
 
         res.status(200).json({
             message: 'Login realizado com sucesso!',

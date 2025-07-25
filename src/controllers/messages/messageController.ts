@@ -27,6 +27,7 @@ export const getMessagesByCase = async (req: AuthenticatedRequest, res: Response
         const userId = req.user?.id; // O advogado que acessa as mensagens
 
         if (!tenantId || !userId) {
+            console.log(tenantId, userId);
             return res.status(401).json({ message: 'Informações de autenticação incompletas. Usuário não autenticado ou token inválido.' });
         }
 

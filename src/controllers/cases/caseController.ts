@@ -9,7 +9,7 @@ const prisma = new PrismaClient();
 // Interface para estender o Request do Express com o usuário autenticado
 interface AuthenticatedRequest extends Request {
     user?: {
-        userId: string; // userId
+        id: string; // id
         tenantId: string;
     };
 }
@@ -19,13 +19,9 @@ export const createCase = async (req: AuthenticatedRequest, res: Response, next:
     try {
         const { title, description, status, clientId } = req.body;
         const tenantId = req.user?.tenantId;
-        const lawyerId = req.user?.userId;
-
-        console.log(`[Backend Cases - createCase] Tentando criar caso para Tenant ID: ${tenantId}, Lawyer ID: ${lawyerId}`);
-        console.log(`[Backend Cases - createCase] Dados recebidos: Título: ${title}, Cliente ID: ${clientId}`);
+        const lawyerId = req.user?.id;
 
         if (!tenantId || !lawyerId) {
-            console.warn('[Backend Cases - createCase] Informações de autenticação incompletas.');
             return res.status(401).json({ message: 'Informações de autenticação incompletas. Usuário não autenticado ou token inválido.' });
         }
 
@@ -38,10 +34,8 @@ export const createCase = async (req: AuthenticatedRequest, res: Response, next:
         });
 
         if (!client) {
-            console.warn(`[Backend Cases - createCase] Cliente ID ${clientId} não encontrado ou não pertence ao Tenant ID ${tenantId}.`);
             return res.status(404).json({ message: 'Cliente não encontrado ou não pertence ao seu escritório.' });
         }
-        console.log(`[Backend Cases - createCase] Cliente ${client.firstName} ${client.lastName} (ID: ${client.id}) verificado e pertence ao tenant.`);
 
         const newCase = await prisma.case.create({
             data: {
@@ -79,7 +73,6 @@ export const createCase = async (req: AuthenticatedRequest, res: Response, next:
             },
         });
 
-        console.log(`[Backend Cases - createCase] Caso '${newCase.title}' (ID: ${newCase.id}) criado com sucesso.`);
         res.status(201).json({
             message: 'Caso criado com sucesso!',
             case: newCase,
@@ -87,7 +80,6 @@ export const createCase = async (req: AuthenticatedRequest, res: Response, next:
 
     } catch (error: unknown) {
         if (error instanceof ZodError) {
-            console.error('[Backend Cases - createCase] Erro de validação Zod:', error.issues);
             return res.status(400).json({ errors: error.issues.map(err => ({ path: err.path.join('.'), message: err.message })) });
         }
         console.error('[Backend Cases - createCase] Erro inesperado:', error);
@@ -99,14 +91,12 @@ export const createCase = async (req: AuthenticatedRequest, res: Response, next:
 export const getCases = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
         const tenantId = req.user?.tenantId;
-        const lawyerId = req.user?.userId;
+        const lawyerId = req.user?.id;
         // >>> NOVO: Obter clientId da query string <<<
         const { clientId } = req.query; // req.query contém os parâmetros da URL, como ?clientId=abc
 
-        console.log(`[Backend Cases - getCases] Tentando buscar casos para Tenant ID: ${tenantId}, Lawyer ID: ${lawyerId}, Filtrando por Cliente ID: ${clientId || 'Nenhum'}`);
-
         if (!tenantId || !lawyerId) {
-            console.warn('[Backend Cases - getCases] Informações de autenticação incompletas na requisição.');
+            console.log(tenantId, lawyerId);
             return res.status(401).json({ message: 'Informações de autenticação incompletas. Usuário não autenticado ou token inválido.' });
         }
 
@@ -145,12 +135,9 @@ export const getCases = async (req: AuthenticatedRequest, res: Response, next: N
             },
         });
 
-        console.log(`[Backend Cases - getCases] Query de casos executada. Encontrados ${cases.length} casos.`);
-        console.log(`[Backend Cases - getCases] Detalhes dos casos encontrados (primeiros 3):`, cases.slice(0, 3));
         res.status(200).json({ cases });
 
     } catch (error: unknown) {
-        console.error('[Backend Cases - getCases] Erro inesperado ao buscar casos:', error);
         next(error);
     }
 };
@@ -160,12 +147,10 @@ export const getCaseById = async (req: AuthenticatedRequest, res: Response, next
     try {
         const { id } = req.params;
         const tenantId = req.user?.tenantId;
-        const lawyerId = req.user?.userId;
+        const lawyerId = req.user?.id;
 
-        console.log(`[Backend Cases - getCaseById] Tentando buscar caso ${id} para Tenant ID: ${tenantId}, Lawyer ID: ${lawyerId}`);
 
         if (!tenantId || !lawyerId) {
-            console.warn('[Backend Cases - getCaseById] Informações de autenticação incompletas na requisição.');
             return res.status(401).json({ message: 'Informações de autenticação incompletas. Usuário não autenticado ou token inválido.' });
         }
 
@@ -222,15 +207,12 @@ export const getCaseById = async (req: AuthenticatedRequest, res: Response, next
         });
 
         if (!caseItem) {
-            console.warn(`[Backend Cases - getCaseById] Caso ${id} não encontrado ou não pertence ao usuário/tenant.`);
             return res.status(404).json({ message: 'Caso não encontrado ou não pertence ao seu escritório/advogado.' });
         }
 
-        console.log(`[Backend Cases - getCaseById] Caso '${caseItem.title}' (ID: ${caseItem.id}) encontrado.`);
         res.status(200).json({ case: caseItem });
 
     } catch (error: unknown) {
-        console.error('[Backend Cases - getCaseById] Erro inesperado ao buscar caso por ID:', error);
         next(error);
     }
 };
@@ -241,13 +223,9 @@ export const updateCase = async (req: AuthenticatedRequest, res: Response, next:
         const { id } = req.params;
         const updatedData = req.body;
         const tenantId = req.user?.tenantId;
-        const lawyerId = req.user?.userId;
-
-        console.log(`[Backend Cases - updateCase] Tentando atualizar caso ${id} para Tenant ID: ${tenantId}, Lawyer ID: ${lawyerId}`);
-        console.log(`[Backend Cases - updateCase] Dados de atualização:`, updatedData);
+        const lawyerId = req.user?.id;
 
         if (!tenantId || !lawyerId) {
-            console.warn('[Backend Cases - updateCase] Informações de autenticação incompletas.');
             return res.status(401).json({ message: 'Informações de autenticação incompletas. Usuário não autenticado ou token inválido.' });
         }
 
@@ -261,10 +239,8 @@ export const updateCase = async (req: AuthenticatedRequest, res: Response, next:
         });
 
         if (!existingCase) {
-            console.warn(`[Backend Cases - updateCase] Caso ${id} não encontrado ou não pertence ao usuário/tenant para atualização.`);
             return res.status(404).json({ message: 'Caso não encontrado ou você não tem permissão para editá-lo.' });
         }
-        console.log(`[Backend Cases - updateCase] Caso ${id} verificado para atualização.`);
 
         const updatedCase = await prisma.case.update({
             where: {
@@ -284,7 +260,6 @@ export const updateCase = async (req: AuthenticatedRequest, res: Response, next:
             },
         });
 
-        console.log(`[Backend Cases - updateCase] Caso ${updatedCase.id} atualizado com sucesso.`);
         res.status(200).json({
             message: 'Caso atualizado com sucesso!',
             case: updatedCase,
@@ -305,12 +280,9 @@ export const deleteCase = async (req: AuthenticatedRequest, res: Response, next:
     try {
         const { id } = req.params;
         const tenantId = req.user?.tenantId;
-        const lawyerId = req.user?.userId;
-
-        console.log(`[Backend Cases - deleteCase] Tentando deletar caso ${id} para Tenant ID: ${tenantId}, Lawyer ID: ${lawyerId}`);
+        const lawyerId = req.user?.id;
 
         if (!tenantId || !lawyerId) {
-            console.warn('[Backend Cases - deleteCase] Informações de autenticação incompletas.');
             return res.status(401).json({ message: 'Informações de autenticação incompletas. Usuário não autenticado ou token inválido.' });
         }
 
@@ -324,10 +296,8 @@ export const deleteCase = async (req: AuthenticatedRequest, res: Response, next:
         });
 
         if (!caseToDelete) {
-            console.warn(`[Backend Cases - deleteCase] Caso ${id} não encontrado ou não pertence ao usuário/tenant para deleção.`);
             return res.status(404).json({ message: 'Caso não encontrado ou você não tem permissão para deletá-lo.' });
         }
-        console.log(`[Backend Cases - deleteCase] Caso ${id} verificado para deleção.`);
 
 
         await prisma.case.delete({

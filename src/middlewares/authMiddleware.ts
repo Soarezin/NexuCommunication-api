@@ -1,14 +1,17 @@
 import { Request, Response, NextFunction } from "express"
 import jwt from "jsonwebtoken"
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret"
+const JWT_SECRET = process.env.JWT_SECRET || 'uma_chave_secreta_muito_forte_e_aleatoria'
+
+export interface JwtPayload {
+  id: string
+  tenantId: string
+  iat?: number
+  exp?: number
+}
 
 export interface AuthRequest extends Request {
-  user?: {
-    id: string
-    email: string
-    role: string
-  }
+  user?: JwtPayload
 }
 
 export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -20,7 +23,7 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as AuthRequest["user"]
+    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload
     req.user = decoded
     next()
   } catch (error) {

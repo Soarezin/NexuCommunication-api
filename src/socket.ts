@@ -23,7 +23,7 @@ const clearNotificationTimeout = (messageId: string) => {
 
 // >>> CORREÇÃO AQUI: Use JwtPayload diretamente <<<
 interface AuthenticatedSocket extends Socket {
-    user?: JwtPayload; // Agora o tipo 'user' é JwtPayload
+    user?: JwtPayload; 
 }
 
 export const setupSocketIO = (io: Server) => {
@@ -32,10 +32,12 @@ export const setupSocketIO = (io: Server) => {
 
     io.on('connection', async (socket: AuthenticatedSocket) => {
         // Altere aqui de 'id' para 'userId' para consistência com JwtPayload
-        const userId = socket.user?.userId;
+        console.log(socket.user)
+        const userId = socket.user?.id;
         const tenantId = socket.user?.tenantId;
 
         if (!userId || !tenantId) {
+            console.log(userId, tenantId);
             console.error('[Socket.IO] Conexão WebSocket não autenticada rejeitada.');
             socket.disconnect(true);
             return;
@@ -143,7 +145,7 @@ export const setupSocketIO = (io: Server) => {
                 }
 
                 // Ajuste para usar userId
-                const isLawyerResponsible = socket.user?.userId === message.case.lawyerId;
+                const isLawyerResponsible = socket.user?.id === message.case.lawyerId;
 
                 if (!isLawyerResponsible) {
                     console.warn(`[Socket.IO] Usuário ${userId} tentou marcar mensagem ${messageId} como visualizada sem permissão.`);
