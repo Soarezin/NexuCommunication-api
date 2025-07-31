@@ -1,15 +1,16 @@
-// src/controllers/caseController.ts
+// src/controllers/cases/caseController.ts
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
+// >>> Importe os ENUMS e os novos modelos diretamente do Prisma Client <<<
+import { PrismaClient, CaseStatus, CaseParticipantUserRole, CaseParticipantClientType } from '@prisma/client';
 import { ZodError } from 'zod';
-import { CreateCaseInput, UpdateCaseInput } from '../../validations/cases/caseValidations';
+// Importe os tipos de input. Verifique o caminho: ../validations/caseValidations
+import { CreateCaseInput, UpdateCaseInput } from '../../validations/cases/caseValidations'; 
 
 const prisma = new PrismaClient();
 
-// Interface para estender o Request do Express com o usuário autenticado
 interface AuthenticatedRequest extends Request {
     user?: {
-        id: string; // id
+        id: string;
         tenantId: string;
     };
 }
@@ -19,60 +20,90 @@ export const createCase = async (req: AuthenticatedRequest, res: Response, next:
     try {
         const { title, description, status, clientId } = req.body;
         const tenantId = req.user?.tenantId;
-        const lawyerId = req.user?.id;
+        const lawyerId = req.user?.id; // O advogado logado é o criador e advogado principal por padrão
+
+        console.log(`[Backend Cases - createCase] Tentando criar caso para Tenant ID: ${tenantId}, Lawyer ID: ${lawyerId}`);
+        console.log(`[Backend Cases - createCase] Dados recebidos: Título: ${title}, Cliente ID: ${clientId}`);
 
         if (!tenantId || !lawyerId) {
+            console.warn('[Backend Cases - createCase] Informações de autenticação incompletas.');
             return res.status(401).json({ message: 'Informações de autenticação incompletas. Usuário não autenticado ou token inválido.' });
         }
 
-        // Verificar se o cliente (clientId) existe e pertence ao mesmo tenant
+        // 1.1. Verificar se o cliente (clientId) existe e pertence ao mesmo tenant
         const client = await prisma.client.findUnique({
             where: {
                 id: clientId,
                 tenantId,
             },
+            select: { id: true, firstName: true, lastName: true, email: true },
         });
 
         if (!client) {
+            console.warn(`[Backend Cases - createCase] Cliente ID ${clientId} não encontrado ou não pertence ao Tenant ID ${tenantId}.`);
             return res.status(404).json({ message: 'Cliente não encontrado ou não pertence ao seu escritório.' });
         }
+        console.log(`[Backend Cases - createCase] Cliente ${client.firstName} ${client.lastName} (ID: ${client.id}) verificado e pertence ao tenant.`);
 
-        const newCase = await prisma.case.create({
-            data: {
-                title,
-                description,
-                status,
-                clientId,
-                lawyerId,
-                tenantId,
-            },
-            select: {
-                id: true,
-                title: true,
-                description: true,
-                status: true,
-                clientId: true,
-                lawyerId: true,
-                tenantId: true,
-                createdAt: true,
-                updatedAt: true,
-                client: {
-                    select: {
-                        id: true,
-                        firstName: true,
-                        lastName: true,
-                    },
+        // 1.2. Criar o caso e associar os participantes em uma transação
+        const newCase = await prisma.$transaction(async (tx) => {
+            // Criar o caso
+            const createdCase = await tx.case.create({
+                data: {
+                    title,
+                    description,
+                    status: status as CaseStatus, // Converter string para Enum CaseStatus
+                    tenantId,
+                    lawyerPrimaryId: lawyerId, 
+                    clientPrimaryId: client.id, 
                 },
-                lawyer: {
-                    select: {
-                        id: true,
-                        firstName: true,
-                        lastName: true,
-                    },
+            });
+            console.log(`[Backend Cases - createCase] Caso (ID: ${createdCase.id}) criado.`);
+
+            // Adicionar o advogado logado como participante do caso na tabela de junção
+            await tx.caseParticipantUser.create({ // Acessa o novo modelo CaseParticipantUser
+                data: {
+                    caseId: createdCase.id,
+                    userId: lawyerId,
+                    role: CaseParticipantUserRole.LeadLawyer, // Define o papel do advogado no caso
                 },
-            },
+            });
+            console.log(`[Backend Cases - createCase] Advogado ${lawyerId} adicionado como LeadLawyer.`);
+
+            // Adicionar o cliente como participante do caso na tabela de junção
+            await tx.caseParticipantClient.create({ // Acessa o novo modelo CaseParticipantClient
+                data: {
+                    caseId: createdCase.id,
+                    clientId: client.id,
+                    type: CaseParticipantClientType.MainContact, // Define o tipo de contato do cliente
+                },
+            });
+            console.log(`[Backend Cases - createCase] Cliente ${client.id} adicionado como MainContact.`);
+
+            // Retornar o caso com as relações incluídas para a resposta
+            return tx.case.findUnique({
+                where: { id: createdCase.id },
+                select: {
+                    id: true,
+                    title: true,
+                    description: true,
+                    status: true,
+                    tenantId: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    lawyerPrimary: { select: { id: true, firstName: true, lastName: true, email: true } },
+                    clientPrimary: { select: { id: true, firstName: true, lastName: true, email: true } },
+                    participantsUsers: { select: { userId: true, role: true, user: { select: { id: true, firstName: true, lastName: true } } } },
+                    participantsClients: { select: { clientId: true, type: true, client: { select: { id: true, firstName: true, lastName: true } } } },
+                },
+            });
         });
 
+        if (!newCase) {
+            throw new Error("Falha inesperada ao criar caso e participantes.");
+        }
+
+        console.log(`[Backend Cases - createCase] Caso '${newCase.title}' (ID: ${newCase.id}) criado com sucesso com participantes.`);
         res.status(201).json({
             message: 'Caso criado com sucesso!',
             case: newCase,
@@ -80,6 +111,7 @@ export const createCase = async (req: AuthenticatedRequest, res: Response, next:
 
     } catch (error: unknown) {
         if (error instanceof ZodError) {
+            console.error('[Backend Cases - createCase] Erro de validação Zod:', error.issues);
             return res.status(400).json({ errors: error.issues.map(err => ({ path: err.path.join('.'), message: err.message })) });
         }
         console.error('[Backend Cases - createCase] Erro inesperado:', error);
@@ -91,53 +123,61 @@ export const createCase = async (req: AuthenticatedRequest, res: Response, next:
 export const getCases = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
         const tenantId = req.user?.tenantId;
-        const lawyerId = req.user?.id;
-        // >>> NOVO: Obter clientId da query string <<<
-        const { clientId } = req.query; // req.query contém os parâmetros da URL, como ?clientId=abc
+        const userId = req.user?.id; // O advogado logado
+        const { clientId } = req.query;
 
-        if (!tenantId || !lawyerId) {
-            console.log(tenantId, lawyerId);
+        console.log(`[Backend Cases - getCases] Tentando buscar casos para Tenant ID: ${tenantId}, User ID: ${userId}, Filtrando por Cliente ID: ${clientId || 'Nenhum'}`);
+
+        if (!tenantId || !userId) {
+            console.warn('[Backend Cases - getCases] Informações de autenticação incompletas.');
             return res.status(401).json({ message: 'Informações de autenticação incompletas. Usuário não autenticado ou token inválido.' });
         }
 
-        // Construir o objeto 'where' dinamicamente
-        const whereClause: any = { // Usamos 'any' aqui para flexibilidade, ou podemos tipar melhor o 'where'
+        const whereClause: any = {
             tenantId,
-            lawyerId,
+            // O usuário logado deve ser um participante do caso
+            participantsUsers: {
+                some: {
+                    userId: userId,
+                },
+            },
         };
 
         if (clientId) {
-            whereClause.clientId = clientId as string; // Adiciona o filtro por clientId se ele for fornecido
+            // Se clientId for fornecido, filtra casos onde o cliente também é um participante
+            whereClause.participantsClients = {
+                some: {
+                    clientId: clientId as string,
+                },
+            };
         }
 
         const cases = await prisma.case.findMany({
-            where: whereClause, // Usamos a cláusula 'where' dinâmica
+            where: whereClause,
             select: {
                 id: true,
                 title: true,
                 description: true,
-                status: true,
-                clientId: true,
-                lawyerId: true,
-                tenantId: true,
+                status: true, // Status agora é um Enum
                 createdAt: true,
                 updatedAt: true,
-                client: {
-                    select: {
-                        id: true,
-                        firstName: true,
-                        lastName: true,
-                    },
-                },
+                tenantId: true,
+                lawyerPrimary: { select: { id: true, firstName: true, lastName: true } },
+                clientPrimary: { select: { id: true, firstName: true, lastName: true, email: true } },
+                participantsUsers: { select: { userId: true, role: true, user: { select: { id: true, firstName: true, lastName: true } } } },
+                participantsClients: { select: { clientId: true, type: true, client: { select: { id: true, firstName: true, lastName: true } } } },
             },
             orderBy: {
                 createdAt: 'desc',
             },
         });
 
+        console.log(`[Backend Cases - getCases] Query de casos executada. Encontrados ${cases.length} casos.`);
+        console.log(`[Backend Cases - getCases] Detalhes dos casos encontrados (primeiros 3):`, cases.slice(0, 3));
         res.status(200).json({ cases });
 
     } catch (error: unknown) {
+        console.error('[Backend Cases - getCases] Erro inesperado ao buscar casos:', error);
         next(error);
     }
 };
@@ -147,10 +187,12 @@ export const getCaseById = async (req: AuthenticatedRequest, res: Response, next
     try {
         const { id } = req.params;
         const tenantId = req.user?.tenantId;
-        const lawyerId = req.user?.id;
+        const userId = req.user?.id;
 
+        console.log(`[Backend Cases - getCaseById] Tentando buscar caso ${id} para Tenant ID: ${tenantId}, User ID: ${userId}`);
 
-        if (!tenantId || !lawyerId) {
+        if (!tenantId || !userId) {
+            console.warn('[Backend Cases - getCaseById] Informações de autenticação incompletas na requisição.');
             return res.status(401).json({ message: 'Informações de autenticação incompletas. Usuário não autenticado ou token inválido.' });
         }
 
@@ -158,42 +200,36 @@ export const getCaseById = async (req: AuthenticatedRequest, res: Response, next
             where: {
                 id,
                 tenantId,
-                lawyerId,
+                participantsUsers: {
+                    some: {
+                        userId: userId,
+                    },
+                },
             },
             select: {
                 id: true,
                 title: true,
                 description: true,
-                status: true,
-                clientId: true,
-                lawyerId: true,
-                tenantId: true, // Adicionado para depuração
+                status: true, // Status agora é um Enum
+                tenantId: true,
                 createdAt: true,
                 updatedAt: true,
-                client: {
-                    select: {
-                        id: true,
-                        firstName: true,
-                        lastName: true,
-                        email: true,
-                        phoneNumber: true,
-                    },
-                },
-                lawyer: {
-                    select: {
-                        id: true,
-                        firstName: true,
-                        lastName: true,
-                        email: true,
-                    },
-                },
+                lawyerPrimary: { select: { id: true, firstName: true, lastName: true, email: true } },
+                clientPrimary: { select: { id: true, firstName: true, lastName: true, email: true } },
+                participantsUsers: { select: { userId: true, role: true, user: { select: { id: true, firstName: true, lastName: true, email: true } } } },
+                participantsClients: { select: { clientId: true, type: true, client: { select: { id: true, firstName: true, lastName: true, email: true } } } },
                 messages: {
                     orderBy: { createdAt: 'asc' },
                     select: {
                         id: true,
                         content: true,
-                        senderId: true,
                         createdAt: true,
+                        senderId: true,
+                        receiverClientId: true,
+                        viewed: true,
+                        viewedAt: true,
+                        sender: { select: { id: true, firstName: true, lastName: true, email: true } },
+                        receiverClient: { select: { id: true, firstName: true, lastName: true, email: true } },
                     },
                 },
                 files: {
@@ -207,12 +243,15 @@ export const getCaseById = async (req: AuthenticatedRequest, res: Response, next
         });
 
         if (!caseItem) {
-            return res.status(404).json({ message: 'Caso não encontrado ou não pertence ao seu escritório/advogado.' });
+            console.warn(`[Backend Cases - getCaseById] Caso ${id} não encontrado ou usuário ${userId} não é participante/tenant.`);
+            return res.status(404).json({ message: 'Caso não encontrado ou você não tem permissão para acessá-lo.' });
         }
 
+        console.log(`[Backend Cases - getCaseById] Caso '${caseItem.title}' (ID: ${caseItem.id}) encontrado.`);
         res.status(200).json({ case: caseItem });
 
     } catch (error: unknown) {
+        console.error('[Backend Cases - getCaseById] Erro inesperado ao buscar caso por ID:', error);
         next(error);
     }
 };
@@ -223,9 +262,13 @@ export const updateCase = async (req: AuthenticatedRequest, res: Response, next:
         const { id } = req.params;
         const updatedData = req.body;
         const tenantId = req.user?.tenantId;
-        const lawyerId = req.user?.id;
+        const userId = req.user?.id;
 
-        if (!tenantId || !lawyerId) {
+        console.log(`[Backend Cases - updateCase] Tentando atualizar caso ${id} para Tenant ID: ${tenantId}, User ID: ${userId}`);
+        console.log(`[Backend Cases - updateCase] Dados de atualização:`, updatedData);
+
+        if (!tenantId || !userId) {
+            console.warn('[Backend Cases - updateCase] Informações de autenticação incompletas.');
             return res.status(401).json({ message: 'Informações de autenticação incompletas. Usuário não autenticado ou token inválido.' });
         }
 
@@ -233,30 +276,47 @@ export const updateCase = async (req: AuthenticatedRequest, res: Response, next:
             where: {
                 id,
                 tenantId,
-                lawyerId,
+                participantsUsers: {
+                    some: {
+                        userId: userId,
+                    },
+                },
             },
             select: { id: true },
         });
 
         if (!existingCase) {
+            console.warn(`[Backend Cases - updateCase] Caso ${id} não encontrado ou usuário ${userId} não tem permissão para editá-lo.`);
             return res.status(404).json({ message: 'Caso não encontrado ou você não tem permissão para editá-lo.' });
         }
+        console.log(`[Backend Cases - updateCase] Caso ${id} verificado para atualização.`);
 
         const updatedCase = await prisma.case.update({
             where: {
                 id,
                 tenantId,
-                lawyerId,
+                // O usuário deve ser um participante para ter permissão de edição
+                participantsUsers: {
+                    some: {
+                        userId: userId,
+                    },
+                },
             },
-            data: updatedData,
+            data: {
+                title: updatedData.title,
+                description: updatedData.description,
+                status: updatedData.status as CaseStatus, // Converter string para Enum CaseStatus
+            },
             select: {
                 id: true,
                 title: true,
                 description: true,
                 status: true,
-                clientId: true,
-                lawyerId: true,
+                createdAt: true,
                 updatedAt: true,
+                tenantId: true,
+                lawyerPrimary: { select: { id: true, firstName: true } },
+                clientPrimary: { select: { id: true, firstName: true } },
             },
         });
 
@@ -280,9 +340,12 @@ export const deleteCase = async (req: AuthenticatedRequest, res: Response, next:
     try {
         const { id } = req.params;
         const tenantId = req.user?.tenantId;
-        const lawyerId = req.user?.id;
+        const userId = req.user?.id;
 
-        if (!tenantId || !lawyerId) {
+        console.log(`[Backend Cases - deleteCase] Tentando deletar caso ${id} para Tenant ID: ${tenantId}, User ID: ${userId}`);
+
+        if (!tenantId || !userId) {
+            console.warn('[Backend Cases - deleteCase] Informações de autenticação incompletas.');
             return res.status(401).json({ message: 'Informações de autenticação incompletas. Usuário não autenticado ou token inválido.' });
         }
 
@@ -290,26 +353,35 @@ export const deleteCase = async (req: AuthenticatedRequest, res: Response, next:
             where: {
                 id,
                 tenantId,
-                lawyerId,
+                participantsUsers: {
+                    some: {
+                        userId: userId,
+                    },
+                },
             },
             select: { id: true },
         });
 
         if (!caseToDelete) {
+            console.warn(`[Backend Cases - deleteCase] Caso ${id} não encontrado ou usuário ${userId} não tem permissão para deletá-lo.`);
             return res.status(404).json({ message: 'Caso não encontrado ou você não tem permissão para deletá-lo.' });
         }
-
+        console.log(`[Backend Cases - deleteCase] Caso ${id} verificado para deleção.`);
 
         await prisma.case.delete({
             where: {
                 id,
                 tenantId,
-                lawyerId,
+                participantsUsers: {
+                    some: {
+                        userId: userId,
+                    },
+                },
             },
         });
 
-        console.log(`[Backend Cases - deleteCase] Caso ${id} deletado com sucesso.`);
         res.status(204).send();
+        console.log(`[Backend Cases - deleteCase] Caso ${id} deletado com sucesso.`);
 
     } catch (error: unknown) {
         console.error('[Backend Cases - deleteCase] Erro inesperado ao deletar caso:', error);

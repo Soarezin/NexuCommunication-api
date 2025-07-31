@@ -15,7 +15,7 @@ const prisma = new PrismaClient();
 
 // Interface para estender o Request do Express com o usuário autenticado
 // Seu middleware de autenticação deve popular req.user com id e tenantId
-interface AuthenticatedRequest extends Request {
+export interface AuthenticatedRequest extends Request {
     user?: {
         id: string;
         tenantId: string;
