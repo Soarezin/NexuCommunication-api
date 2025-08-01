@@ -13,7 +13,7 @@ const prisma = new PrismaClient();
 // Interface para estender o Request do Express com o usuário autenticado
 interface AuthenticatedRequest extends Request {
     user?: {
-        id: string;
+        userId: string;
         tenantId: string;
     };
 }
@@ -26,7 +26,7 @@ export const inviteClientToCase = async (req: AuthenticatedRequest, res: Respons
     try {
         const { lawsuitId } = req.params;
         const { email } = inviteClientSchema.parse(req.body);
-        const inviterUserId = req.user?.id;
+        const inviterUserId = req.user?.userId;
         const tenantId = req.user?.tenantId;
 
         console.log(`[InviteController] Convite: Tentando enviar para ${email} no caso ${lawsuitId} pelo advogado ${inviterUserId} (Tenant: ${tenantId})`);

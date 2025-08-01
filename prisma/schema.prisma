@@ -9,6 +9,67 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// =========================================================================
+// ENUMS E MODELOS AUXILIARES
+// =========================================================================
+
+enum UserRole {
+  Admin
+  Lawyer
+  Paralegal
+}
+
+enum CaseStatus {
+  Open
+  InProgress
+  Closed
+  Pending
+  OnHold
+  Archived
+}
+
+enum CaseParticipantUserRole {
+  LeadLawyer
+  CoLawyer
+  Paralegal
+  Observer
+}
+
+enum CaseParticipantClientType {
+  MainContact
+  BillingContact
+  LegalRepresentative
+  OtherContact
+}
+
+// >>> MODELOS DE PERMISSÃO DEFINIDOS ANTES DO MODELO User <<<
+model Permission {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userPermissions UserPermission[]
+}
+
+model UserPermission {
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission  Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@id([userId, permissionId])
+}
+
+
+// =========================================================================
+// MODELOS PRINCIPAIS
+// =========================================================================
+
 // 1. Modelo Tenant (Escritório de Advocacia)
 model Tenant {
   id        String   @id @default(uuid())
@@ -16,11 +77,13 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users   User[]    // Advogados/usuários que pertencem a este Tenant
-  clients Client[]  // Clientes que pertencem a este Tenant
-  cases   Case[]    // Casos que pertencem a este Tenant
-  messages Message[] // Mensagens que ocorrem dentro deste Tenant (para garantir escopo)
-  files    File[]    // >>> NOVO: Adicionado para ser o lado oposto da relação com File
+  users    User[]
+  clients  Client[]
+  cases    Case[]
+  messages Message[]
+  files    File[]
+  invites  Invite[]
+  caseEvents CaseEvent[]
 }
 
 // 2. Modelo User (Advogados - Usuários do Sistema)
@@ -30,35 +93,25 @@ model User {
   lastName  String
   email     String   @unique
   password  String
+  role      UserRole @default(Lawyer)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id])
 
-  cases Case[] @relation("LawyerCases")
+  primaryCases Case[] @relation("LawyerPrimaryCases")
   sentMessages Message[] @relation("SentByUser")
-  // Mensagens recebidas por este advogado (se advogados também recebem mensagens diretamente)
-  // Se esta relação 'ReceivedByUser' for para mensagens ENVIADAS POR CLIENTES PARA ADVOGADOS,
-  // então o `Message` precisa de um campo 'receiverUserId' e uma relação correspondente.
-  // Pelo que entendi, as mensagens são entre User (advogado) e Client (cliente),
-  // então esta relação 'receivedMessages' em User talvez não seja necessária aqui,
-  // ou precisa de uma lógica clara de quem é o 'receiver' de que tipo de mensagem.
-  // POR ENQUANTO, VOU REMOVER ESTE CAMPO PARA SIMPLIFICAR E EVITAR AMBIGUIDADE,
-  // JÁ QUE A MENSAGEM FOI DEFINIDA COMO User -> Client.
-  // Se você realmente precisar que um advogado "receba" mensagens diretamente,
-  // teríamos que ajustar o modelo Message para ter um receiverId opcional que possa ser userId OU clientId.
-  // Isso é mais complexo e pode ser um refinamento futuro.
-  // Se for o caso, me diga e podemos explorar como fazer isso corretamente.
-  // receivedMessages Message[] @relation("ReceivedByUser") // REMOVIDO TEMPORARIAMENTE
+  participatingCases CaseParticipantUser[]
+  caseEvents   CaseEvent[]
+  userPermissions UserPermission[] // AGORA UserPermission JÁ FOI DEFINIDO ACIMA
 }
 
-// 3. Modelo Client (Clientes dos Escritórios de Advocacia)
 model Client {
   id          String   @id @default(uuid())
   firstName   String
   lastName    String
-  email       String   @unique // Opcional: email pode ser único apenas dentro de um tenant
+  email       String   @unique
   phoneNumber String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -66,64 +119,127 @@ model Client {
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id])
 
-  cases            Case[]
+  primaryCases Case[] @relation("ClientPrimaryCases")
+
   receivedMessages Message[] @relation("ReceivedByClient")
+  participatingCases CaseParticipantClient[]
 }
 
-// 4. Modelo Case (Caso Jurídico)
 model Case {
-  id          String   @id @default(uuid())
+  id          String     @id @default(uuid())
   title       String
   description String?
-  status      String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  status      CaseStatus @default(Open)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
   tenantId String
-  tenant   Tenant @relation(fields: [tenantId], references: [id])
+  tenant   Tenant     @relation(fields: [tenantId], references: [id])
 
-  lawyerId String
-  lawyer   User   @relation("LawyerCases", fields: [lawyerId], references: [id])
+  lawyerPrimaryId String?
+  lawyerPrimary   User?      @relation("LawyerPrimaryCases", fields: [lawyerPrimaryId], references: [id])
 
-  clientId String
-  client   Client @relation(fields: [clientId], references: [id])
+  clientPrimaryId String?
+  clientPrimary   Client?    @relation("ClientPrimaryCases", fields: [clientPrimaryId], references: [id])
 
-  messages Message[]
-  files    File[]
+  messages        Message[]
+  files           File[]
+  invites         Invite[]
+  caseEvents      CaseEvent[]
+
+  participantsUsers CaseParticipantUser[]
+  participantsClients CaseParticipantClient[]
 }
 
-// 5. Modelo Message (Mensagens)
-model Message {
-  id        String    @id @default(uuid())
-  content   String
-  viewed    Boolean   @default(false)
-  viewedAt  DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  tenantId String
-  tenant   Tenant @relation(fields: [tenantId], references: [id])
-
+// ... (o restante dos modelos CaseParticipantUser, CaseParticipantClient, etc., sem alteração)
+model CaseParticipantUser {
   caseId String
-  case   Case   @relation(fields: [caseId], references: [id])
+  case   Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   CaseParticipantUserRole @default(CoLawyer)
 
-  senderId String // Quem enviou a mensagem (um User - advogado)
-  sender   User   @relation("SentByUser", fields: [senderId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  receiverClientId String // Quem recebeu a mensagem (um Client)
-  receiverClient   Client @relation("ReceivedByClient", fields: [receiverClientId], references: [id])
+  @@id([caseId, userId])
 }
 
-// 6. Modelo File (Arquivos)
+model CaseParticipantClient {
+  caseId   String
+  case     Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type     CaseParticipantClientType @default(OtherContact)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@id([caseId, clientId])
+}
+
+model CaseEvent {
+  id        String   @id @default(uuid())
+  type      String
+  description String?
+  timestamp DateTime @default(now())
+
+  caseId    String
+  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model Message {
+  id             String    @id @default(uuid())
+  content        String
+  viewed         Boolean   @default(false)
+  viewedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  caseId         String
+  case           Case      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  senderId       String
+  sender         User      @relation("SentByUser", fields: [senderId], references: [id], onDelete: Cascade)
+
+  receiverClientId String
+  receiverClient   Client    @relation("ReceivedByClient", fields: [receiverClientId], references: [id], onDelete: Cascade)
+}
+
 model File {
   id         String   @id @default(uuid())
   name       String
   url        String
   uploadedAt DateTime @default(now())
 
-  tenantId String // Garante que o arquivo pertence a um tenant
-  tenant   Tenant @relation(fields: [tenantId], references: [id]) // Já existe
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  caseId String
-  case   Case   @relation(fields: [caseId], references: [id])
+  caseId     String
+  case       Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+}
+
+model Invite {
+  id         String    @id @default(uuid())
+  email      String
+  token      String    @unique
+  expiresAt  DateTime
+  isUsed     Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  caseId     String
+  case       Case      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }

@@ -32,7 +32,7 @@ export const authenticateSocket = (socket: AuthenticatedSocket, next: (err?: Err
         socket.user = decoded; 
         
         // No log, acesse userId diretamente de decoded
-        console.log(`[SocketAuth] Socket autenticado com sucesso para UserId: ${decoded.id}, TenantId: ${decoded.tenantId}`);
+        console.log(`[SocketAuth] Socket autenticado com sucesso para UserId: ${decoded.userId}, TenantId: ${decoded.tenantId}`);
         next();
     } catch (error) {
         console.error('[SocketAuth] Erro inesperado ao verificar token (pode ser expirado ou malformado):', error);

@@ -25,7 +25,7 @@ export const createMessage = async (req: AuthenticatedRequest, res: Response, ne
     try {
         const { content, caseId, receiverClientId } = createMessageSchema.parse(req.body);
         const tenantId = req.user?.tenantId;
-        const senderId = req.user?.id; 
+        const senderId = req.user?.userId; 
 
         console.log(`[MessageController - createMessage] Tentando enviar mensagem para caso ${caseId}, cliente ${receiverClientId}, pelo advogado ${senderId} (Tenant: ${tenantId})`);
 
@@ -148,7 +148,7 @@ export const getMessagesByCase = async (req: AuthenticatedRequest, res: Response
     try {
         const { caseId } = req.params;
         const tenantId = req.user?.tenantId;
-        const userId = req.user?.id; // O advogado que acessa as mensagens
+        const userId = req.user?.userId; // O advogado que acessa as mensagens
 
         console.log(`[MessageController - getMessagesByCase] Buscando mensagens para caso ${caseId} para Tenant ID: ${tenantId}, User ID: ${userId}`);
 
@@ -221,7 +221,7 @@ export const markMessageAsViewed = async (req: AuthenticatedRequest, res: Respon
     try {
         const { id } = req.params; // ID da mensagem
         const tenantId = req.user?.tenantId;
-        const userId = req.user?.id; // O advogado que tenta marcar como visualizada
+        const userId = req.user?.userId; // O advogado que tenta marcar como visualizada
 
         console.log(`[MessageController - markMessageAsViewed] Marcando mensagem ${id} como visualizada por User ID: ${userId} (Tenant: ${tenantId})`);
 

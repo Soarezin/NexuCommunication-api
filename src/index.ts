@@ -9,11 +9,14 @@ import authRoutes from './routes/authRoutes';
 import clientRoutes from './routes/clientRoutes';
 import caseRoutes from './routes/caseRoutes';
 import messageRoutes from './routes/messageRoutes';
-import inviteRoutes from './routes/inviteRoutes'; 
+import inviteRoutes from './routes/inviteRoutes';
+import permissionRoutes from './routes/permissionRoutes';
+import userRoutes from './routes/userRoutes';
 
 import { errorHandler } from './middlewares/errror.middleware';
 import { authenticateSocket } from './middlewares/socketAuthMiddleware';
 import { setupSocketIO } from './socket';
+
 
 dotenv.config();
 
@@ -43,7 +46,9 @@ app.use('/auth', authRoutes);
 app.use('/clients', clientRoutes);
 app.use('/cases', caseRoutes);
 app.use('/messages', messageRoutes);
-app.use('/api', inviteRoutes); // >>> NOVO: Adiciona as rotas de convite, prefixadas com /cases <<<
+app.use('/api', inviteRoutes);
+app.use('/users', userRoutes); 
+app.use('/permissions', permissionRoutes);
 
 app.use(errorHandler);
 

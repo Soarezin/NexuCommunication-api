@@ -6,38 +6,33 @@ import {
     getCaseById,
     updateCase,
     deleteCase,
-} from '../controllers/cases/caseController'; // Importa as funções do controlador de casos
-
-import { authenticateToken } from '../middlewares/authMiddleware'; // Seu middleware de autenticação
-import { validate } from '../middlewares/validateMiddleware'; // Seu middleware de validação Zod
+} from '../controllers/cases/caseController';
+import { authenticateToken } from '../middlewares/authMiddleware';
+import { validate } from '../middlewares/validateMiddleware';
+// >>> AJUSTE: MANTENHA A IMPORTAÇÃO DE hasPermission COMO ESTÁ, POIS ELA ESTÁ CORRETA.
+// O erro deve ser em outro arquivo ou no processo de compilação.
+import { hasPermission, hasAnyPermission } from '../middlewares/authorizationMiddleware';
 import {
     createCaseSchema,
     updateCaseSchema,
-} from '../validations/cases/caseValidations'; // Importa os schemas de validação Zod
+} from '../validations/cases/caseValidations';
 
 const router = Router();
 
-// Todas as rotas de caso precisam de autenticação para garantir o isolamento por tenant e por advogado.
-// O middleware 'authenticateToken' deve ser aplicado a todas elas.
+// Rota para criar um novo caso - requer permissão 'can_create_case'
+router.post('/', authenticateToken, hasPermission('can_create_case'), validate(createCaseSchema), createCase);
 
-// Rota para criar um novo caso
-// POST /cases
-router.post('/', authenticateToken, validate(createCaseSchema), createCase);
+// Rota para listar todos os casos - requer permissão 'can_view_all_cases'
+router.get('/', authenticateToken, hasPermission('can_view_all_cases'), getCases);
 
-// Rota para listar todos os casos do tenant e do advogado autenticado
-// GET /cases
-router.get('/', authenticateToken, getCases);
+// Rota para obter um caso específico por ID - requer permissão 'can_view_all_cases'
+router.get('/:id', authenticateToken, hasPermission('can_view_all_cases'), getCaseById);
 
-// Rota para obter um caso específico por ID
-// GET /cases/:id
-router.get('/:id', authenticateToken, getCaseById);
+// Rota para atualizar um caso existente por ID - requer permissão 'can_edit_case'
+router.put('/:id', authenticateToken, hasPermission('can_edit_case'), validate(updateCaseSchema), updateCase);
 
-// Rota para atualizar um caso existente por ID
-// PUT /cases/:id
-router.put('/:id', authenticateToken, validate(updateCaseSchema), updateCase);
+// Rota para remover um caso por ID - requer permissão 'can_delete_case'
+router.delete('/:id', authenticateToken, hasPermission('can_delete_case'), deleteCase);
 
-// Rota para remover um caso por ID
-// DELETE /cases/:id
-router.delete('/:id', authenticateToken, deleteCase);
 
 export default router;

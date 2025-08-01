@@ -31,7 +31,7 @@ export const setupSocketIO = (io: Server) => {
 
     io.on('connection', async (socket: AuthenticatedSocket) => {
         // console.log("Socket user object: ", socket.user); // Mantenha para depuração
-        const userId = socket.user?.id; // ID do usuário logado (advogado)
+        const userId = socket.user?.userId; // ID do usuário logado (advogado)
         const tenantId = socket.user?.tenantId;
 
         if (!userId || !tenantId) {

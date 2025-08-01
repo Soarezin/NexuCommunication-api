@@ -10,7 +10,7 @@ const prisma = new PrismaClient();
 
 interface AuthenticatedRequest extends Request {
     user?: {
-        id: string;
+        userId: string;
         tenantId: string;
     };
 }
@@ -20,7 +20,7 @@ export const createCase = async (req: AuthenticatedRequest, res: Response, next:
     try {
         const { title, description, status, clientId } = req.body;
         const tenantId = req.user?.tenantId;
-        const lawyerId = req.user?.id; // O advogado logado é o criador e advogado principal por padrão
+        const lawyerId = req.user?.userId; // O advogado logado é o criador e advogado principal por padrão
 
         console.log(`[Backend Cases - createCase] Tentando criar caso para Tenant ID: ${tenantId}, Lawyer ID: ${lawyerId}`);
         console.log(`[Backend Cases - createCase] Dados recebidos: Título: ${title}, Cliente ID: ${clientId}`);
@@ -123,7 +123,7 @@ export const createCase = async (req: AuthenticatedRequest, res: Response, next:
 export const getCases = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
         const tenantId = req.user?.tenantId;
-        const userId = req.user?.id; // O advogado logado
+        const userId = req.user?.userId; // O advogado logado
         const { clientId } = req.query;
 
         console.log(`[Backend Cases - getCases] Tentando buscar casos para Tenant ID: ${tenantId}, User ID: ${userId}, Filtrando por Cliente ID: ${clientId || 'Nenhum'}`);
@@ -187,7 +187,7 @@ export const getCaseById = async (req: AuthenticatedRequest, res: Response, next
     try {
         const { id } = req.params;
         const tenantId = req.user?.tenantId;
-        const userId = req.user?.id;
+        const userId = req.user?.userId;
 
         console.log(`[Backend Cases - getCaseById] Tentando buscar caso ${id} para Tenant ID: ${tenantId}, User ID: ${userId}`);
 
@@ -262,7 +262,7 @@ export const updateCase = async (req: AuthenticatedRequest, res: Response, next:
         const { id } = req.params;
         const updatedData = req.body;
         const tenantId = req.user?.tenantId;
-        const userId = req.user?.id;
+        const userId = req.user?.userId;
 
         console.log(`[Backend Cases - updateCase] Tentando atualizar caso ${id} para Tenant ID: ${tenantId}, User ID: ${userId}`);
         console.log(`[Backend Cases - updateCase] Dados de atualização:`, updatedData);
@@ -340,7 +340,7 @@ export const deleteCase = async (req: AuthenticatedRequest, res: Response, next:
     try {
         const { id } = req.params;
         const tenantId = req.user?.tenantId;
-        const userId = req.user?.id;
+        const userId = req.user?.userId;
 
         console.log(`[Backend Cases - deleteCase] Tentando deletar caso ${id} para Tenant ID: ${tenantId}, User ID: ${userId}`);
 

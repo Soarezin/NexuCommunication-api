@@ -1,12 +1,14 @@
-import { Router } from "express"
-import type { AuthRequest } from "@/middlewares/authMiddleware"
-import { authenticateToken } from "../middlewares/authMiddleware"
+// src/routes/userRoutes.ts
+import { Router } from 'express';
+import { getUsersByTenant, getUserById } from '../controllers/users/userController';
+import { authenticateToken } from '../middlewares/authMiddleware';
 
-const router = Router()
+const router = Router();
 
-router.get("/me", authenticateToken, (req: AuthRequest, res) => {
-  return res.status(200).json({ user: req.user })
-})
+// Rota para listar todos os usuários do tenant
+router.get('/', authenticateToken, getUsersByTenant);
 
+// Rota para obter um usuário específico por ID
+router.get('/:id', authenticateToken, getUserById);
 
-export default router
+export default router;

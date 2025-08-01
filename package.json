@@ -5,8 +5,11 @@
   "license": "MIT",
   "scripts": {
     "dev": "ts-node-dev --respawn src/index.ts",
+    "prod": "node dist/index.js",
+    "build": "tsc",
     "generate": "prisma generate",
-    "migrate": "prisma db push"
+    "migrate": "prisma db push",
+    "prisma:seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.10.2",
