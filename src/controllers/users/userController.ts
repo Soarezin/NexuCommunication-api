@@ -38,6 +38,8 @@ export const getUsersByTenant = async (req: AuthenticatedRequest, res: Response,
                 lastName: true,
                 email: true,
                 createdAt: true,
+                role: true,
+                isActive: true
             },
             orderBy: {
                 firstName: 'asc',
@@ -81,6 +83,8 @@ export const getUserById = async (req: AuthenticatedRequest, res: Response, next
                 lastName: true,
                 email: true,
                 createdAt: true,
+                role: true,
+                isActive: true,
             },
         });
 

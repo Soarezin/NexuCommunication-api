@@ -107,6 +107,7 @@ async function main() {
             firstName: 'Admin',
             lastName: 'User',
             role: UserRole.Admin,
+            isActive: true,
             tenantId: defaultTenant.id,
         },
         select: {

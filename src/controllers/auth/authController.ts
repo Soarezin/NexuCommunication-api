@@ -78,6 +78,7 @@ export const register = async (req: Request<any, any, RegisterInput>, res: Respo
                 tenantId: tenant.id,
                 // >>> NOVO: Definir o papel padrão (ex: Lawyer) <<<
                 role: UserRole.Lawyer,
+                isActive: true,
                 userPermissions: {
                     create: defaultLawyerPermissions.map(p => ({
                         permission: { connect: { id: p.id } }
@@ -90,6 +91,7 @@ export const register = async (req: Request<any, any, RegisterInput>, res: Respo
                 firstName: true,
                 lastName: true,
                 tenantId: true,
+                isActive: true,
                 // >>> NOVO: Inclua o papel e as permissões na resposta <<<
                 role: true,
                 userPermissions: {
