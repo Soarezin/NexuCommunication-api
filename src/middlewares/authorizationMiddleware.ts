@@ -1,7 +1,8 @@
 // src/middlewares/authorizationMiddleware.ts
 import { Request, Response, NextFunction } from 'express';
 // Reutilize a interface JwtPayload e AuthRequest do seu authMiddleware
-import { JwtPayload, AuthRequest } from './authMiddleware';
+import { AuthRequest } from './authMiddleware';
+import { JwtPayload } from '@/utils/jwt'
 // Importe UserRole se precisar de autorização baseada em papel, além de granular
 import { UserRole } from '@prisma/client';
 

@@ -1,5 +1,3 @@
-// prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -42,7 +40,17 @@ enum CaseParticipantClientType {
   OtherContact
 }
 
-// >>> MODELOS DE PERMISSÃO DEFINIDOS ANTES DO MODELO User <<<
+enum EmployeeStatus {
+  Pending
+  Active
+  Suspended
+  Revoked
+}
+
+// =========================================================================
+// PERMISSÕES
+// =========================================================================
+
 model Permission {
   id          String   @id @default(uuid())
   name        String   @unique
@@ -54,39 +62,45 @@ model Permission {
 }
 
 model UserPermission {
-  userId      String
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
   permissionId String
-  permission  Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@id([userId, permissionId])
 }
-
 
 // =========================================================================
 // MODELOS PRINCIPAIS
 // =========================================================================
 
-// 1. Modelo Tenant (Escritório de Advocacia)
 model Tenant {
   id        String   @id @default(uuid())
   name      String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users    User[]
-  clients  Client[]
-  cases    Case[]
-  messages Message[]
-  files    File[]
-  invites  Invite[]
+  users      User[]
+  clients    Client[]
+  cases      Case[]
+  messages   Message[]
+  files      File[]
+  invites    Invite[]
   caseEvents CaseEvent[]
+
+  generalSetting      GeneralSetting?
+  notificationSetting NotificationSetting?
+  securitySetting     SecuritySetting?
+  billingSetting      BillingSetting?
+  integrationSetting  IntegrationSetting?
+
+  employees Employee[]
 }
 
-// 2. Modelo User (Advogados - Usuários do Sistema)
 model User {
   id        String   @id @default(uuid())
   firstName String
@@ -100,11 +114,13 @@ model User {
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id])
 
-  primaryCases Case[] @relation("LawyerPrimaryCases")
-  sentMessages Message[] @relation("SentByUser")
+  primaryCases       Case[]                @relation("LawyerPrimaryCases")
+  sentMessages       Message[]             @relation("SentByUser")
   participatingCases CaseParticipantUser[]
-  caseEvents   CaseEvent[]
-  userPermissions UserPermission[] // AGORA UserPermission JÁ FOI DEFINIDO ACIMA
+  caseEvents         CaseEvent[]
+  userPermissions    UserPermission[]
+
+  employee Employee? @relation("UserEmployee")
 }
 
 model Client {
@@ -119,9 +135,8 @@ model Client {
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id])
 
-  primaryCases Case[] @relation("ClientPrimaryCases")
-
-  receivedMessages Message[] @relation("ReceivedByClient")
+  primaryCases       Case[]                  @relation("ClientPrimaryCases")
+  receivedMessages   Message[]               @relation("ReceivedByClient")
   participatingCases CaseParticipantClient[]
 }
 
@@ -134,30 +149,29 @@ model Case {
   updatedAt   DateTime   @updatedAt
 
   tenantId String
-  tenant   Tenant     @relation(fields: [tenantId], references: [id])
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
 
   lawyerPrimaryId String?
-  lawyerPrimary   User?      @relation("LawyerPrimaryCases", fields: [lawyerPrimaryId], references: [id])
+  lawyerPrimary   User?   @relation("LawyerPrimaryCases", fields: [lawyerPrimaryId], references: [id])
 
   clientPrimaryId String?
-  clientPrimary   Client?    @relation("ClientPrimaryCases", fields: [clientPrimaryId], references: [id])
+  clientPrimary   Client? @relation("ClientPrimaryCases", fields: [clientPrimaryId], references: [id])
 
-  messages        Message[]
-  files           File[]
-  invites         Invite[]
-  caseEvents      CaseEvent[]
-
-  participantsUsers CaseParticipantUser[]
+  messages            Message[]
+  files               File[]
+  invites             Invite[]
+  caseEvents          CaseEvent[]
+  participantsUsers   CaseParticipantUser[]
   participantsClients CaseParticipantClient[]
 }
 
-// ... (o restante dos modelos CaseParticipantUser, CaseParticipantClient, etc., sem alteração)
 model CaseParticipantUser {
   caseId String
-  case   Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
   userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   role   CaseParticipantUserRole @default(CoLawyer)
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -167,10 +181,11 @@ model CaseParticipantUser {
 
 model CaseParticipantClient {
   caseId   String
-  case     Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
   clientId String
-  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
   type     CaseParticipantClientType @default(OtherContact)
+
+  case   Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -179,40 +194,40 @@ model CaseParticipantClient {
 }
 
 model CaseEvent {
-  id        String   @id @default(uuid())
-  type      String
+  id          String   @id @default(uuid())
+  type        String
   description String?
-  timestamp DateTime @default(now())
+  timestamp   DateTime @default(now())
 
-  caseId    String
-  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  caseId String
+  case   Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
 
 model Message {
-  id             String    @id @default(uuid())
-  content        String
-  viewed         Boolean   @default(false)
-  viewedAt       DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id        String    @id @default(uuid())
+  content   String
+  viewed    Boolean   @default(false)
+  viewedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
-  tenantId       String
-  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  caseId         String
-  case           Case      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  caseId String
+  case   Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
-  senderId       String
-  sender         User      @relation("SentByUser", fields: [senderId], references: [id], onDelete: Cascade)
+  senderId String
+  sender   User   @relation("SentByUser", fields: [senderId], references: [id], onDelete: Cascade)
 
   receiverClientId String
-  receiverClient   Client    @relation("ReceivedByClient", fields: [receiverClientId], references: [id], onDelete: Cascade)
+  receiverClient   Client @relation("ReceivedByClient", fields: [receiverClientId], references: [id], onDelete: Cascade)
 }
 
 model File {
@@ -221,25 +236,124 @@ model File {
   url        String
   uploadedAt DateTime @default(now())
 
-  tenantId   String
-  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  caseId     String
-  case       Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  caseId String
+  case   Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
 }
 
 model Invite {
-  id         String    @id @default(uuid())
-  email      String
-  token      String    @unique
-  expiresAt  DateTime
-  isUsed     Boolean   @default(false)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id        String   @id @default(uuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  caseId     String
-  case       Case      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  caseId String
+  case   Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
-  tenantId   String
-  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// =========================================================================
+// SETTINGS (CONFIGURAÇÕES DO ESCRITÓRIO)
+// =========================================================================
+
+model GeneralSetting {
+  id       String @id @default(uuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  theme        String?  @default("system")
+  businessName String?
+  workingDays  String[]
+  workingHours Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model NotificationSetting {
+  id       String @id @default(uuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  email    Boolean @default(true)
+  whatsapp Boolean @default(false)
+  app      Boolean @default(true)
+
+  newMessage       Boolean @default(true)
+  caseUpdate       Boolean @default(true)
+  newDocument      Boolean @default(false)
+  signatureRequest Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SecuritySetting {
+  id       String @id @default(uuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  twoFAEnabled      Boolean @default(false)
+  autoLogoutMinutes Int     @default(15)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model BillingSetting {
+  id       String @id @default(uuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  plan       String   @default("pro")
+  nextCharge DateTime
+  isActive   Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model IntegrationSetting {
+  id       String @id @default(uuid())
+  tenantId String @unique
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  d4signConnected      Boolean @default(false)
+  smtpConfigured       Boolean @default(false)
+  googleCalendarLinked Boolean @default(false)
+  webhookUrl           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =========================================================================
+// FUNCIONÁRIOS
+// =========================================================================
+
+model Employee {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  email  String         @unique
+  name   String?
+  role   UserRole       @default(Lawyer)
+  status EmployeeStatus @default(Pending)
+
+  invitedAt  DateTime  @default(now())
+  acceptedAt DateTime?
+
+  userId String? @unique
+  user   User?   @relation("UserEmployee", fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

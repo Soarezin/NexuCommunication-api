@@ -4,6 +4,7 @@
     "paths": {
       "@/*": ["*"]
     },
+    "typeRoots": ["./node_modules/@types", "./src/types"],
     "target": "ES2020",
     "module": "CommonJS",
     "rootDir": "src",

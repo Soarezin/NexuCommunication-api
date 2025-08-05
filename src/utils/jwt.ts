@@ -1,8 +1,9 @@
 // src/utils/jwt.ts
 import jwt, { Secret, SignOptions } from 'jsonwebtoken';
+import { JwtPayload as BasePayload } from 'jsonwebtoken'
 import { UserRole } from '@prisma/client';
 
-export interface JwtPayload {
+export interface JwtPayload extends BasePayload {
     userId: string;
     tenantId: string;
     role: UserRole; 

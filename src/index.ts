@@ -12,6 +12,7 @@ import messageRoutes from './routes/messageRoutes';
 import inviteRoutes from './routes/inviteRoutes';
 import permissionRoutes from './routes/permissionRoutes';
 import userRoutes from './routes/userRoutes';
+import generalSettingsRoutes from './routes/generalSettingsRoutes';
 
 import { errorHandler } from './middlewares/errror.middleware';
 import { authenticateSocket } from './middlewares/socketAuthMiddleware';
@@ -49,6 +50,7 @@ app.use('/messages', messageRoutes);
 app.use('/api', inviteRoutes);
 app.use('/users', userRoutes); 
 app.use('/permissions', permissionRoutes);
+app.use('/settings/general', generalSettingsRoutes);
 
 app.use(errorHandler);
 
@@ -56,8 +58,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`🚀 Servidor HTTP e WebSocket rodando na porta ${PORT}`);
     console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`DEBUG: JWT_SECRET carregado: ${process.env.JWT_SECRET ? 'Sim' : 'Não'}`);
-    if (process.env.JWT_SECRET) {
-        console.log(`DEBUG: Primeiros 5 caracteres do JWT_SECRET: ${process.env.JWT_SECRET.substring(0, 5)}`);
-    }
 });
