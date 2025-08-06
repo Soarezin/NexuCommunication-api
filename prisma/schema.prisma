@@ -15,6 +15,7 @@ enum UserRole {
   Admin
   Lawyer
   Paralegal
+  Client
 }
 
 enum CaseStatus {
@@ -122,6 +123,7 @@ model User {
   userPermissions    UserPermission[]
 
   employee Employee? @relation("UserEmployee")
+  Client   Client?
 }
 
 model Client {
@@ -136,10 +138,14 @@ model Client {
   tenantId String
   tenant   Tenant @relation(fields: [tenantId], references: [id])
 
+  userId String? @unique 
+  user   User?   @relation(fields: [userId], references: [id]) 
+
   primaryCases       Case[]                  @relation("ClientPrimaryCases")
   receivedMessages   Message[]               @relation("ReceivedByClient")
   participatingCases CaseParticipantClient[]
 }
+
 
 model Case {
   id          String     @id @default(uuid())

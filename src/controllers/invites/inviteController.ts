@@ -7,6 +7,7 @@ import { sendEmail } from '../../services/messages/emailService'; // Seu serviç
 import { randomUUID } from 'crypto'; // Para gerar UUIDs (já no Node.js)
 import { hashPassword } from '../../utils/hash'; // Seu utilitário de hash de senha
 import { generateToken } from '../../utils/jwt'; // Seu utilitário JWT para login automático
+import jwt from "jsonwebtoken";
 
 const prisma = new PrismaClient();
 
@@ -20,6 +21,26 @@ interface AuthenticatedRequest extends Request {
 
 // URL base do seu frontend, para construir o link de convite
 const FRONTEND_BASE_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+
+
+const CLIENT_DEFAULT_PERMISSIONS = [
+    "can_view_all_cases",
+    "can_view_message_history",
+    "can_mark_message_as_viewed",
+    "can_send_messages",
+    "can_receive_message_alerts",
+    "can_receive_documents",
+    "can_upload_document",
+    "can_manage_version_history",
+    "can_request_digital_signature",
+    "can_create_appointment",
+    "can_reschedule_appointment",
+    "can_manage_client_presence",
+    "can_share_agenda_with_client",
+    "can_edit_personal_profile",
+    "can_change_password",
+    "can_manage_notifications",
+  ];  
 
 // 1. Endpoint de Envio de Convite (POST /api/cases/:lawsuitId/invite-client)
 export const inviteClientToCase = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -159,132 +180,131 @@ export const inviteClientToCase = async (req: AuthenticatedRequest, res: Respons
 // 2. Endpoint de Registro via Convite (POST /api/register/invite)
 export const registerClientViaInvite = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const { token, firstName, lastName, password } = registerViaInviteSchema.parse(req.body);
-
-        console.log(`[InviteController] Registro via Convite: Tentando registrar cliente com token: ${token.substring(0, 8)}...`);
-
-        // 2.1. Buscar e Validar o Convite
-        const invite = await prisma.invite.findUnique({
-            where: { token },
-            include: { case: true }, // Incluir o caso para verificar clientId existente no caso
+      const { token, firstName, lastName, password } = registerViaInviteSchema.parse(req.body);
+  
+      console.log(`[InviteController] Registro via Convite: Tentando registrar cliente com token: ${token.substring(0, 8)}...`);
+  
+      const invite = await prisma.invite.findUnique({
+        where: { token },
+        include: { case: true },
+      });
+  
+      if (!invite) {
+        return res.status(404).json({ message: 'Convite inválido ou não encontrado.' });
+      }
+  
+      if (invite.isUsed) {
+        return res.status(400).json({ message: 'Convite já utilizado.' });
+      }
+  
+      if (invite.expiresAt < new Date()) {
+        return res.status(400).json({ message: 'Convite expirado.' });
+      }
+  
+      const existingClient = await prisma.client.findUnique({ where: { email: invite.email } });
+  
+      if (existingClient) {
+        if (invite.case && invite.case.clientPrimaryId === existingClient.id) {
+          return res.status(409).json({ message: 'Cliente já cadastrado e já associado a este caso.' });
+        }
+  
+        await prisma.case.update({
+          where: { id: invite.caseId },
+          data: { clientPrimaryId: existingClient.id },
         });
+  
+        await prisma.invite.update({
+          where: { id: invite.id },
+          data: { isUsed: true },
+        });
+  
+        return res.status(200).json({ message: 'Convite processado. Cliente já existente foi associado ao caso.' });
+      }
+  
+      const hashedPassword = await hashPassword(password);
+  
+      const newUser = await prisma.user.create({
+        data: {
+          firstName,
+          lastName,
+          email: invite.email,
+          password: hashedPassword,
+          role: 'Client',
+          tenantId: invite.tenantId,
+          isActive: true,
+        },
+      });
+  
+      const newClient = await prisma.client.create({
+        data: {
+          email: invite.email,
+          firstName,
+          lastName,
+          tenantId: invite.tenantId,
+          userId: newUser.id,
+        },
+      });
+  
+      await prisma.case.update({
+        where: { id: invite.caseId },
+        data: { clientPrimaryId: newClient.id },
+      });
+  
+      await prisma.invite.update({
+        where: { id: invite.id },
+        data: { isUsed: true },
+      });
 
-        if (!invite) {
-            console.warn('[InviteController] Registro via Convite: Convite inválido ou não encontrado.');
-            return res.status(404).json({ message: 'Convite inválido ou não encontrado.' });
-        }
-        console.log(`[InviteController] Registro via Convite: Convite (ID: ${invite.id}) encontrado para ${invite.email}.`);
-
-        if (invite.isUsed) {
-            console.warn(`[InviteController] Registro via Convite: Convite ${invite.id} já utilizado.`);
-            return res.status(400).json({ message: 'Convite já utilizado.' });
-        }
-
-        if (invite.expiresAt < new Date()) {
-            console.warn(`[InviteController] Registro via Convite: Convite ${invite.id} expirado.`);
-            // Opcional: Marcar convite como expirado no DB aqui
-            return res.status(400).json({ message: 'Convite expirado.' });
-        }
-        console.log('[InviteController] Registro via Convite: Convite válido.');
-
-        // 2.2. Verificar se já existe um User/Client com o email do convite
-        const existingClient = await prisma.client.findUnique({ where: { email: invite.email } });
-
-        if (existingClient) {
-            // Se o cliente já existe, podemos associá-lo ao caso, mas não precisamos registrar de novo
-            // Ou é um erro se o fluxo é apenas para novos registros
-            console.warn(`[InviteController] Registro via Convite: Cliente com e-mail ${invite.email} já existe. Associando ao caso existente.`);
-            // Assumimos que, se o cliente já existe, vamos usá-lo e associá-lo ao caso do convite
-            // Em um cenário mais robusto, você poderia pedir para o usuário fazer login.
-
-            // VERIFICAÇÃO ADICIONAL: O cliente existente já está vinculado a este caso?
-            if (invite.case && invite.case.clientPrimaryId === existingClient.id) {
-                console.warn(`[InviteController] Registro via Convite: Cliente ${existingClient.id} já associado ao caso ${invite.caseId}.`);
-                return res.status(409).json({ message: 'Cliente já cadastrado e já associado a este caso.' });
-            }
-
-            // O cliente existe, mas não está associado a este caso.
-            // Para simplicidade, vamos ATUALIZAR o caso para incluir este cliente.
-            // Isso requer que a relação Case to Client seja 1:1, ou M:N se houver múltiplos clientes por caso.
-            // SE SUA RELAÇÃO CASE-CLIENT É 1:1:
-            await prisma.case.update({
-                where: { id: invite.caseId },
-                data: { clientPrimaryId: existingClient.id },
-            });
-            console.log(`[InviteController] Registro via Convite: Caso ${invite.caseId} atualizado para usar cliente existente ${existingClient.id}.`);
+      const permissions = await prisma.permission.findMany({
+        where: {
+          name: {
+            in: CLIENT_DEFAULT_PERMISSIONS,
+          },
+        },
+      });
+      
+      // Agora sim, `permissions` é um array que pode usar `.map`
+      await prisma.userPermission.createMany({
+        data: permissions.map((permission) => ({
+          userId: newUser.id,
+          permissionId: permission.id,
+        })),
+      });
             
-            // Marcar convite como usado
-            await prisma.invite.update({
-                where: { id: invite.id },
-                data: { isUsed: true },
-            });
-            
-            // Retornar o token de login para o cliente existente, se ele puder logar
-            // Ou simplesmente informar que o convite foi processado.
-            // Para este MVP, vamos retornar um sucesso simples e esperar que ele faça login.
-            return res.status(200).json({ message: 'Convite processado. Você já está cadastrado e associado ao caso.', user: existingClient });
-
-        } else {
-            // 2.3. Cliente não existe, então criar novo User e Cliente
-            const hashedPassword = await hashPassword(password);
-
-            // Criar um novo Client e User (como cliente)
-            // No seu schema, User e Client são modelos separados mas User tem a role lawyer.
-            // Precisamos criar um Client (que é o que está no caso).
-            // Em um sistema real, Cliente pode ser um tipo de User, ou ter seu próprio login.
-            // Com seu schema atual (User é advogado, Client é o cliente da advocacia), o cliente não faz login diretamente.
-            // Se o cliente vai ter uma tela de cliente e login, o modelo Client precisaria de 'password'.
-            // Por enquanto, vamos criar um Cliente e considerar o 'password' para um futuro login de cliente.
-
-            // Criando o Client no Tenant do advogado que enviou o convite
-            const newClient = await prisma.client.create({
-                data: {
-                    email: invite.email,
-                    firstName,
-                    lastName,
-                    tenantId: invite.tenantId, // O cliente pertence ao tenant do advogado que o convidou
-                    // role: "client", // Se Client tivesse um campo role
-                },
-            });
-            console.log(`[InviteController] Registro via Convite: Novo cliente (ID: ${newClient.id}) criado para ${newClient.email}.`);
-
-            // Associar o novo cliente ao caso
-            await prisma.case.update({
-                where: { id: invite.caseId },
-                data: { clientPrimaryId: newClient.id },
-            });
-            console.log(`[InviteController] Registro via Convite: Caso ${invite.caseId} associado ao novo cliente ${newClient.id}.`);
-
-            // 2.4. Marcar o Convite como utilizado
-            await prisma.invite.update({
-                where: { id: invite.id },
-                data: { isUsed: true },
-            });
-            console.log(`[InviteController] Registro via Convite: Convite ${invite.id} marcado como utilizado.`);
-
-            // Opcional: Gerar token de sessão para o novo cliente (se o cliente tiver login)
-            // Isso exigiria que o modelo Client tivesse campos de autenticação como 'password' e 'role'
-            // E que você tivesse uma lógica de geração de token para clientes.
-            // Por agora, o cliente se registra e o advogado é notificado. O cliente faria login em sua própria tela.
-            res.status(201).json({
-                message: 'Conta criada e associada ao caso com sucesso!',
-                client: {
-                    id: newClient.id,
-                    firstName: newClient.firstName,
-                    lastName: newClient.lastName,
-                    email: newClient.email,
-                    tenantId: newClient.tenantId,
-                },
-                // token: clientLoginToken // Se houvesse login automático para cliente
-            });
-        }
-
+  
+      const jwtToken = jwt.sign(
+        {
+          id: newUser.id,
+          email: newUser.email,
+          role: newUser.role,
+          tenantId: newUser.tenantId,
+        },
+        process.env.JWT_SECRET!,
+        { expiresIn: '7d' }
+      );
+  
+      return res.status(201).json({
+        message: 'Conta criada e associada ao caso com sucesso!',
+        token: jwtToken,
+        user: {
+          id: newUser.id,
+          email: newUser.email,
+          firstName: newUser.firstName,
+          lastName: newUser.lastName,
+          role: newUser.role,
+        },
+      });
     } catch (error: unknown) {
-        if (error instanceof ZodError) {
-            console.error('[InviteController] Registro via Convite: Erro de validação Zod:', error.issues);
-            return res.status(400).json({ errors: error.issues.map(err => ({ path: err.path.join('.'), message: err.message })) });
-        }
-        console.error('[InviteController] Registro via Convite: Erro inesperado:', error);
-        next(error);
+      if (error instanceof ZodError) {
+        return res.status(400).json({
+          errors: error.issues.map((err) => ({
+            path: err.path.join('.'),
+            message: err.message,
+          })),
+        });
+      }
+  
+      console.error('[InviteController] Erro inesperado:', error);
+      next(error);
     }
-};
+  };
