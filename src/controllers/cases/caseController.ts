@@ -199,20 +199,21 @@ export const getCases = async (req: AuthenticatedRequest, res: Response) => {
 
     // Se for cliente, retorna apenas os casos em que ele está envolvido
     if (role === "Client") {
-      // Buscar o cliente associado a esse usuário
+      // Busca o cliente associado ao usuário logado
       const client = await prisma.client.findFirst({
         where: {
           userId,
           tenantId,
         },
       });
-
+    
       if (!client) {
-        return res
-          .status(404)
-          .json({ message: "Cliente não encontrado para o usuário atual." });
+        return res.status(404).json({
+          message: "Cliente não encontrado para o usuário atual.",
+        });
       }
-
+    
+      // Busca os casos em que o cliente é o principal ou participante
       const cases = await prisma.case.findMany({
         where: {
           tenantId,
@@ -228,15 +229,50 @@ export const getCases = async (req: AuthenticatedRequest, res: Response) => {
           ],
         },
         include: {
-          lawyerPrimary: true,
-          clientPrimary: true,
-          participantsClients: true,
-          participantsUsers: true,
+          lawyerPrimary: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          },
+          clientPrimary: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          },
+          participantsClients: {
+            include: {
+              client: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                },
+              },
+            },
+          },
+          participantsUsers: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                },
+              },
+            },
+          },
         },
       });
-
-      return res.json(cases);
-    }
+    
+      return res.json({ cases });
+    }    
 
     // Se não for cliente, retorna todos os casos do tenant
     const cases = await prisma.case.findMany({
@@ -272,32 +308,52 @@ export const getCaseById = async (
     );
 
     if (!tenantId || !userId) {
-      console.warn(
-        "[Backend Cases - getCaseById] Informações de autenticação incompletas na requisição."
-      );
-      return res
-        .status(401)
-        .json({
-          message:
-            "Informações de autenticação incompletas. Usuário não autenticado ou token inválido.",
-        });
+      return res.status(401).json({
+        message:
+          "Informações de autenticação incompletas. Usuário não autenticado ou token inválido.",
+      });
     }
 
-    const caseItem = await prisma.case.findUnique({
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { Client: true }, // Traz o client se for cliente
+    });
+
+    const isClient = user?.role === "Client";
+    const clientId = user?.Client?.id;
+
+    // 🔍 Ajuste da verificação de acesso
+    const caseItem = await prisma.case.findFirst({
       where: {
         id,
         tenantId,
-        participantsUsers: {
-          some: {
-            userId: userId,
-          },
-        },
+        OR: isClient
+          ? [
+              { clientPrimaryId: clientId },
+              {
+                participantsClients: {
+                  some: {
+                    clientId: clientId,
+                  },
+                },
+              },
+            ]
+          : [
+              { lawyerPrimaryId: userId },
+              {
+                participantsUsers: {
+                  some: {
+                    userId: userId,
+                  },
+                },
+              },
+            ],
       },
       select: {
         id: true,
         title: true,
         description: true,
-        status: true, // Status agora é um Enum
+        status: true,
         tenantId: true,
         createdAt: true,
         updatedAt: true,
@@ -377,12 +433,9 @@ export const getCaseById = async (
       console.warn(
         `[Backend Cases - getCaseById] Caso ${id} não encontrado ou usuário ${userId} não é participante/tenant.`
       );
-      return res
-        .status(404)
-        .json({
-          message:
-            "Caso não encontrado ou você não tem permissão para acessá-lo.",
-        });
+      return res.status(404).json({
+        message: "Caso não encontrado ou você não tem permissão para acessá-lo.",
+      });
     }
 
     console.log(
