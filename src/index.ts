@@ -13,6 +13,7 @@ import inviteRoutes from './routes/inviteRoutes';
 import permissionRoutes from './routes/permissionRoutes';
 import userRoutes from './routes/userRoutes';
 import generalSettingsRoutes from './routes/generalSettingsRoutes';
+import chatRoutes from './routes/chatFileRoutes';
 
 import { errorHandler } from './middlewares/errror.middleware';
 import { authenticateSocket } from './middlewares/socketAuthMiddleware';
@@ -51,6 +52,7 @@ app.use('/api', inviteRoutes);
 app.use('/users', userRoutes); 
 app.use('/permissions', permissionRoutes);
 app.use('/settings/general', generalSettingsRoutes);
+app.use('/chat', chatRoutes);
 
 app.use(errorHandler);
 

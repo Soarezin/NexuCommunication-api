@@ -1,5 +1,5 @@
 -- CreateEnum
-CREATE TYPE "UserRole" AS ENUM ('Admin', 'Lawyer', 'Paralegal');
+CREATE TYPE "UserRole" AS ENUM ('Admin', 'Lawyer', 'Paralegal', 'Client');
 
 -- CreateEnum
 CREATE TYPE "CaseStatus" AS ENUM ('Open', 'InProgress', 'Closed', 'Pending', 'OnHold', 'Archived');
@@ -9,6 +9,9 @@ CREATE TYPE "CaseParticipantUserRole" AS ENUM ('LeadLawyer', 'CoLawyer', 'Parale
 
 -- CreateEnum
 CREATE TYPE "CaseParticipantClientType" AS ENUM ('MainContact', 'BillingContact', 'LegalRepresentative', 'OtherContact');
+
+-- CreateEnum
+CREATE TYPE "EmployeeStatus" AS ENUM ('Pending', 'Active', 'Suspended', 'Revoked');
 
 -- CreateTable
 CREATE TABLE "Permission" (
@@ -51,6 +54,7 @@ CREATE TABLE "User" (
     "role" "UserRole" NOT NULL DEFAULT 'Lawyer',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "isActive" BOOLEAN NOT NULL,
     "tenantId" TEXT NOT NULL,
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
@@ -66,6 +70,7 @@ CREATE TABLE "Client" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "tenantId" TEXT NOT NULL,
+    "userId" TEXT,
 
     CONSTRAINT "Client_pkey" PRIMARY KEY ("id")
 );
@@ -128,10 +133,14 @@ CREATE TABLE "Message" (
     "viewedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
-    "tenantId" TEXT NOT NULL,
     "caseId" TEXT NOT NULL,
-    "senderId" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "senderId" TEXT,
+    "senderClientId" TEXT,
     "receiverClientId" TEXT NOT NULL,
+    "fileUrl" TEXT,
+    "fileName" TEXT,
+    "fileType" TEXT,
 
     CONSTRAINT "Message_pkey" PRIMARY KEY ("id")
 );
@@ -163,6 +172,93 @@ CREATE TABLE "Invite" (
     CONSTRAINT "Invite_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "GeneralSetting" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "theme" TEXT DEFAULT 'system',
+    "businessName" TEXT,
+    "workingDays" TEXT[],
+    "workingHours" JSONB,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "GeneralSetting_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "NotificationSetting" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "email" BOOLEAN NOT NULL DEFAULT true,
+    "whatsapp" BOOLEAN NOT NULL DEFAULT false,
+    "app" BOOLEAN NOT NULL DEFAULT true,
+    "newMessage" BOOLEAN NOT NULL DEFAULT true,
+    "caseUpdate" BOOLEAN NOT NULL DEFAULT true,
+    "newDocument" BOOLEAN NOT NULL DEFAULT false,
+    "signatureRequest" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "NotificationSetting_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SecuritySetting" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "twoFAEnabled" BOOLEAN NOT NULL DEFAULT false,
+    "autoLogoutMinutes" INTEGER NOT NULL DEFAULT 15,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "SecuritySetting_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "BillingSetting" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "plan" TEXT NOT NULL DEFAULT 'pro',
+    "nextCharge" TIMESTAMP(3) NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "BillingSetting_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "IntegrationSetting" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "d4signConnected" BOOLEAN NOT NULL DEFAULT false,
+    "smtpConfigured" BOOLEAN NOT NULL DEFAULT false,
+    "googleCalendarLinked" BOOLEAN NOT NULL DEFAULT false,
+    "webhookUrl" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "IntegrationSetting_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Employee" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "email" TEXT NOT NULL,
+    "name" TEXT,
+    "role" "UserRole" NOT NULL DEFAULT 'Lawyer',
+    "status" "EmployeeStatus" NOT NULL DEFAULT 'Pending',
+    "invitedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "acceptedAt" TIMESTAMP(3),
+    "userId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Employee_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "Permission_name_key" ON "Permission"("name");
 
@@ -176,7 +272,31 @@ CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 CREATE UNIQUE INDEX "Client_email_key" ON "Client"("email");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Client_userId_key" ON "Client"("userId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Invite_token_key" ON "Invite"("token");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "GeneralSetting_tenantId_key" ON "GeneralSetting"("tenantId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "NotificationSetting_tenantId_key" ON "NotificationSetting"("tenantId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "SecuritySetting_tenantId_key" ON "SecuritySetting"("tenantId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "BillingSetting_tenantId_key" ON "BillingSetting"("tenantId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "IntegrationSetting_tenantId_key" ON "IntegrationSetting"("tenantId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Employee_email_key" ON "Employee"("email");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Employee_userId_key" ON "Employee"("userId");
 
 -- AddForeignKey
 ALTER TABLE "UserPermission" ADD CONSTRAINT "UserPermission_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -189,6 +309,9 @@ ALTER TABLE "User" ADD CONSTRAINT "User_tenantId_fkey" FOREIGN KEY ("tenantId") 
 
 -- AddForeignKey
 ALTER TABLE "Client" ADD CONSTRAINT "Client_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Client" ADD CONSTRAINT "Client_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Case" ADD CONSTRAINT "Case_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -221,16 +344,19 @@ ALTER TABLE "CaseEvent" ADD CONSTRAINT "CaseEvent_userId_fkey" FOREIGN KEY ("use
 ALTER TABLE "CaseEvent" ADD CONSTRAINT "CaseEvent_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Message" ADD CONSTRAINT "Message_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Message" ADD CONSTRAINT "Message_caseId_fkey" FOREIGN KEY ("caseId") REFERENCES "Case"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Message" ADD CONSTRAINT "Message_caseId_fkey" FOREIGN KEY ("caseId") REFERENCES "Case"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Message" ADD CONSTRAINT "Message_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Message" ADD CONSTRAINT "Message_senderId_fkey" FOREIGN KEY ("senderId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Message" ADD CONSTRAINT "Message_senderId_fkey" FOREIGN KEY ("senderId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Message" ADD CONSTRAINT "Message_receiverClientId_fkey" FOREIGN KEY ("receiverClientId") REFERENCES "Client"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Message" ADD CONSTRAINT "Message_senderClientId_fkey" FOREIGN KEY ("senderClientId") REFERENCES "Client"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Message" ADD CONSTRAINT "Message_receiverClientId_fkey" FOREIGN KEY ("receiverClientId") REFERENCES "Client"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "File" ADD CONSTRAINT "File_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -243,3 +369,24 @@ ALTER TABLE "Invite" ADD CONSTRAINT "Invite_caseId_fkey" FOREIGN KEY ("caseId") 
 
 -- AddForeignKey
 ALTER TABLE "Invite" ADD CONSTRAINT "Invite_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "GeneralSetting" ADD CONSTRAINT "GeneralSetting_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "NotificationSetting" ADD CONSTRAINT "NotificationSetting_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SecuritySetting" ADD CONSTRAINT "SecuritySetting_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "BillingSetting" ADD CONSTRAINT "BillingSetting_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "IntegrationSetting" ADD CONSTRAINT "IntegrationSetting_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Employee" ADD CONSTRAINT "Employee_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Employee" ADD CONSTRAINT "Employee_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;

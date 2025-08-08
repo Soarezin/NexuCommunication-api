@@ -238,7 +238,12 @@ model Message {
 
   receiverClientId String
   receiverClient   Client @relation("MessageReceiverClient", fields: [receiverClientId], references: [id])
+
+  fileUrl  String?
+  fileName String?
+  fileType String?
 }
+
 
 model File {
   id         String   @id @default(uuid())

@@ -35,6 +35,18 @@ export const setupSocketIO = (io: Server) => {
 
     if (!userId || !tenantId) return socket.disconnect(true);
 
+    socket.on("joinCase", (caseId: string) => {
+      if (!caseId) {
+        console.warn(
+          `${socket.user?.userId} tentou entrar numa sala com caseId inválido`
+        );
+        return;
+      }
+
+      console.log(`${socket.user?.userId} entrou na sala do caso ${caseId}`);
+      socket.join(caseId);
+    });
+
     connectedUsers.set(userId, socket.id);
     userSockets.set(userId, socket);
     socket.join(tenantId);
@@ -44,39 +56,54 @@ export const setupSocketIO = (io: Server) => {
         let clientId: string | undefined = undefined;
         let caseItem = null;
 
-        if (userRole === "Lawyer") {
+        if (userRole === "Lawyer" || userRole === "Admin") {
           caseItem = await prisma.case.findFirst({
             where: {
-                id: caseId,
-                tenantId,
-                participantsUsers: {
-                  some: { userId },
+              id: caseId,
+              tenantId,
+              OR: [
+                { lawyerPrimaryId: userId },
+                {
+                  participantsUsers: {
+                    some: {
+                      userId: userId,
+                    },
+                  },
+                },
+              ],
+            },
+            select: {
+              id: true,
+              title: true,
+              clientPrimaryId: true,
+              lawyerPrimaryId: true,
+              participantsUsers: {
+                select: {
+                  userId: true,
                 },
               },
-              select: {
-                id: true,
-                title: true,
-                clientPrimaryId: true,
-                lawyerPrimaryId: true,
-                participantsUsers: { select: { userId: true } },
-                participantsClients: {
-                  select: {
-                    clientId: true,
-                    client: {
-                      select: { email: true, firstName: true, lastName: true },
+              participantsClients: {
+                select: {
+                  clientId: true,
+                  client: {
+                    select: {
+                      email: true,
+                      firstName: true,
+                      lastName: true,
                     },
                   },
                 },
               },
+            },
           });
-          console.log(caseItem)
         } else if (userRole === "Client") {
           const client = await prisma.client.findUnique({
             where: { userId },
             select: { id: true },
           });
 
-          if (!client) return socket.emit("messageError", "Cliente não encontrado.");
+          if (!client)
+            return socket.emit("messageError", "Cliente não encontrado.");
 
           clientId = client.id;
 
@@ -99,34 +126,49 @@ export const setupSocketIO = (io: Server) => {
               participantsClients: {
                 select: {
                   clientId: true,
-                  client: { select: { email: true, firstName: true, lastName: true } },
+                  client: {
+                    select: { email: true, firstName: true, lastName: true },
+                  },
                 },
               },
             },
           });
         }
 
-        console.log(caseItem)
+        console.log(caseItem);
 
         if (!caseItem) {
-          return socket.emit("messageError", "Não autorizado a enviar mensagem para este caso.");
+          return socket.emit(
+            "messageError",
+            "Não autorizado a enviar mensagem para este caso."
+          );
         }
 
         if (userRole === "Client" && clientId) {
           const isSenderClientPrimary = caseItem.clientPrimaryId === clientId;
-          const isSenderClientParticipant = caseItem.participantsClients.some(p => p.clientId === clientId);
+          const isSenderClientParticipant = caseItem.participantsClients.some(
+            (p) => p.clientId === clientId
+          );
 
           if (!isSenderClientPrimary && !isSenderClientParticipant) {
-            return socket.emit("messageError", "Você não tem permissão para enviar mensagens neste caso.");
+            return socket.emit(
+              "messageError",
+              "Você não tem permissão para enviar mensagens neste caso."
+            );
           }
         }
 
         const isReceiverClientValid =
           caseItem.clientPrimaryId === receiverClientId ||
-          caseItem.participantsClients.some(p => p.clientId === receiverClientId);
+          caseItem.participantsClients.some(
+            (p) => p.clientId === receiverClientId
+          );
 
         if (!isReceiverClientValid) {
-          return socket.emit("messageError", "Cliente recebedor não está associado a este caso.");
+          return socket.emit(
+            "messageError",
+            "Cliente recebedor não está associado a este caso."
+          );
         }
 
         const newMessage = await prisma.message.create({
@@ -137,38 +179,62 @@ export const setupSocketIO = (io: Server) => {
             viewed: false,
             receiverClientId,
             senderId: userId,
-            ...(userRole === "Client" ? { senderClientId: clientId } : { senderId: userId }),
+            ...(userRole === "Client"
+              ? { senderClientId: clientId }
+              : { senderId: userId }),
           },
           include: {
-            sender: { select: { id: true, firstName: true, lastName: true, email: true } },
-            receiverClient: { select: { id: true, firstName: true, lastName: true, email: true } },
+            sender: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+              },
+            },
+            receiverClient: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+              },
+            },
           },
         });
 
-        socket.emit("newMessage", newMessage);
-        const clientSocketId = connectedUsers.get(receiverClientId);
-        if (clientSocketId && userSockets.has(receiverClientId)) {
-          userSockets.get(receiverClientId)?.emit("newMessage", newMessage);
-        } else {
-          const timeoutId = setTimeout(async () => {
+        // Envia a nova mensagem para todos os sockets conectados à sala do caso
+        io.to(caseId).emit("newMessage", newMessage);
+
+        // Aguarda 5 minutos para notificar por e-mail, se não for visualizada
+        const timeoutId = setTimeout(async () => {
+          try {
             const messageStatus = await prisma.message.findUnique({
               where: { id: newMessage.id },
               select: { viewed: true },
             });
+
             const emailReceiverClient = await prisma.client.findUnique({
               where: { id: receiverClientId },
               select: { email: true, firstName: true },
             });
-            if (messageStatus && !messageStatus.viewed && emailReceiverClient?.email) {
+
+            if (
+              messageStatus &&
+              !messageStatus.viewed &&
+              emailReceiverClient?.email
+            ) {
               const subject = `Nova mensagem no caso "${caseItem.title}"`;
               const text = `Olá ${emailReceiverClient.firstName}, nova mensagem: \"${newMessage.content}\"`;
               const html = `<p>Olá <strong>${emailReceiverClient.firstName}</strong>, nova mensagem: <em>${newMessage.content}</em></p>`;
               await sendEmail(emailReceiverClient.email, subject, text, html);
             }
-          }, 5 * 60 * 1000);
+          } catch (err) {
+            console.error("Erro ao tentar enviar notificação por e-mail:", err);
+          }
+        }, 5 * 60 * 1000); // 5 minutos
 
-          messageNotificationTimeouts.set(newMessage.id, timeoutId);
-        }
+        messageNotificationTimeouts.set(newMessage.id, timeoutId);
       } catch (error) {
         console.error("[Socket.IO] Erro ao enviar mensagem:", error);
         socket.emit("messageError", "Erro ao enviar mensagem.");
@@ -183,7 +249,13 @@ export const setupSocketIO = (io: Server) => {
             id: true,
             viewed: true,
             receiverClientId: true,
-            case: { select: { id: true, lawyerPrimaryId: true, clientPrimaryId: true } },
+            case: {
+              select: {
+                id: true,
+                lawyerPrimaryId: true,
+                clientPrimaryId: true,
+              },
+            },
           },
         });
         if (!message || message.viewed) return;
@@ -204,18 +276,25 @@ export const setupSocketIO = (io: Server) => {
           select: { userId: true },
         });
 
-        const allParticipantUserIds = new Set(caseParticipants.map(p => p.userId));
-        if (message.case.lawyerPrimaryId) allParticipantUserIds.add(message.case.lawyerPrimaryId);
-        if (message.case.clientPrimaryId) allParticipantUserIds.add(message.case.clientPrimaryId);
+        const allParticipantUserIds = new Set(
+          caseParticipants.map((p) => p.userId)
+        );
+        if (message.case.lawyerPrimaryId)
+          allParticipantUserIds.add(message.case.lawyerPrimaryId);
+        if (message.case.clientPrimaryId)
+          allParticipantUserIds.add(message.case.clientPrimaryId);
 
-        allParticipantUserIds.forEach(participantId => {
+        allParticipantUserIds.forEach((participantId) => {
           const participantSocketId = connectedUsers.get(participantId);
           if (participantSocketId && userSockets.has(participantId)) {
             userSockets.get(participantId)?.emit("messageViewed", messageId);
           }
         });
       } catch (error) {
-        console.error("[Socket.IO] Erro ao marcar mensagem como visualizada:", error);
+        console.error(
+          "[Socket.IO] Erro ao marcar mensagem como visualizada:",
+          error
+        );
       }
     });
 
